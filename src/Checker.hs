@@ -1,6 +1,6 @@
 {-# LANGUAGE QuasiQuotes #-}
 
-module Check (check, TypeError) where
+module Checker (check, TypeError) where
 
 import Ast
 import Data.Foldable (find)
@@ -26,12 +26,14 @@ type VarEnv = Map String TypeRef
 data Env = Env {tenv :: TypeEnv, fenv :: FunctionEnv, venv :: VarEnv}
 
 check :: Program -> CheckResult ()
-check program =
-  let typeNames = collectTypeNames program
+check (Program defs body) =
+  let typeNames = collectTypeNames defs
    in do
-        typeEnv <- checkTypeDefs typeNames program
-        functionEnv <- checkFunctionSignatures typeEnv program
-        checkFunctions typeEnv functionEnv program
+        typeEnv <- checkTypeDefs typeNames defs
+        functionEnv <- checkFunctionSignatures typeEnv defs
+        checkFunctions typeEnv functionEnv defs
+        let bodyEnv = Env {tenv = typeEnv, fenv = functionEnv, venv = Map.empty}
+        checkAndExpect bodyEnv Int body
 
 collectTypeNames :: [Definition] -> Set String
 collectTypeNames [] = Set.empty
@@ -45,9 +47,9 @@ checkTypeRef _ Float = Right Float
 checkTypeRef _ Bool = Right Bool
 checkTypeRef _ Unit = Right Unit
 checkTypeRef typeNames (TypeRef ref) =
-  if Set.member ref typeNames then Right (TypeRef ref) else Left ""
+  if Set.member ref typeNames then Right (TypeRef ref) else Left [i|Undefined type #{ref}|]
 
-checkTypeDefs :: Set String -> Program -> CheckResult TypeEnv
+checkTypeDefs :: Set String -> [Definition] -> CheckResult TypeEnv
 checkTypeDefs _ [] = Right Map.empty
 checkTypeDefs typeNames (FunDef {} : rest) = checkTypeDefs typeNames rest
 checkTypeDefs typeNames (StructDef name fields : rest) =
@@ -63,7 +65,7 @@ checkTypeDefs typeNames (UnionDef name constructors : rest) =
     () <- if Map.member name restTypeEnv then Left [i|Duplicate type name #{name}|] else Right ()
     return (Map.insert name (Union constructors) restTypeEnv)
 
-checkFunctionSignatures :: TypeEnv -> Program -> CheckResult FunctionEnv
+checkFunctionSignatures :: TypeEnv -> [Definition] -> CheckResult FunctionEnv
 checkFunctionSignatures _ [] = Right Map.empty
 checkFunctionSignatures typeEnv (StructDef {} : rest) = checkFunctionSignatures typeEnv rest
 checkFunctionSignatures typeEnv (UnionDef {} : rest) = checkFunctionSignatures typeEnv rest
@@ -76,7 +78,7 @@ checkFunctionSignatures typeEnv (FunDef name params ret _ : rest) =
         () <- if Map.member name restFunctionEnv then Left [i|Duplicate function name #{name}|] else Right ()
         return (Map.insert name (paramTypes, retType) restFunctionEnv)
 
-checkFunctions :: TypeEnv -> FunctionEnv -> Program -> CheckResult ()
+checkFunctions :: TypeEnv -> FunctionEnv -> [Definition] -> CheckResult ()
 checkFunctions _ _ [] = Right ()
 checkFunctions typeEnv funcitonEnv (UnionDef {} : rest) = checkFunctions typeEnv funcitonEnv rest
 checkFunctions typeEnv funcitonEnv (StructDef {} : rest) = checkFunctions typeEnv funcitonEnv rest
