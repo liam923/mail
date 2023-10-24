@@ -73,61 +73,61 @@ sexpsToProgram sexps =
     (bodySexp : defsSexps) -> do
       defs <- mapM sexpToDefinition defsSexps
       body <- sexpToExp bodySexp
-      return $ Program defs body
+      pure $ Program defs body
     _ -> Left "Empty program"
 
 sexpToDefinition :: SExp -> ParseResult Definition
 sexpToDefinition (SList [SAtom "struct", SAtom name, SList fieldsSexp]) = do
   fields <- mapM sexpToStructField fieldsSexp
-  return $ StructDef name fields
+  pure $ StructDef name fields
 sexpToDefinition (SList [SAtom "union", SAtom name, SList casesSexp]) = do
   cases <- mapM sexpToUnionConstructor casesSexp
-  return $ UnionDef name cases
+  pure $ UnionDef name cases
 sexpToDefinition (SList (SAtom "define" : SAtom name : SList paramsSexp : SAtom "->" : retTypeSexp : bodySexp)) = do
   params <- mapM sexpToFunParam paramsSexp
   retType <- sexpToTypeRef retTypeSexp
   body <- sexpsToExp bodySexp
-  return $ FunDef name params retType body
+  pure $ FunDef name params retType body
 sexpToDefinition _ = Left "Bad definition syntax"
 
 sexpToTypeRef :: SExp -> ParseResult TypeRef
-sexpToTypeRef (SAtom "Int") = return Int
-sexpToTypeRef (SAtom "Float") = return Float
-sexpToTypeRef (SAtom "Bool") = return Bool
-sexpToTypeRef (SAtom "Unit") = return Unit
-sexpToTypeRef (SAtom sym) = return $ TypeRef sym
+sexpToTypeRef (SAtom "Int") = pure Int
+sexpToTypeRef (SAtom "Float") = pure Float
+sexpToTypeRef (SAtom "Bool") = pure Bool
+sexpToTypeRef (SAtom "Unit") = pure Unit
+sexpToTypeRef (SAtom sym) = pure $ TypeRef sym
 sexpToTypeRef _ = Left "Bad type syntax"
 
 sexpToStructField :: SExp -> ParseResult StructField
 sexpToStructField (SList [SAtom name, typeSexp]) =
   do
     type' <- sexpToTypeRef typeSexp
-    return $ StructField name type'
+    pure $ StructField name type'
 sexpToStructField _ = Left "Bad field syntax"
 
 sexpToUnionConstructor :: SExp -> ParseResult UnionConstructor
 sexpToUnionConstructor (SList [SAtom name, typeSexp]) =
   do
     type' <- sexpToTypeRef typeSexp
-    return $ UnionConstructor name type'
+    pure $ UnionConstructor name type'
 sexpToUnionConstructor _ = Left "Bad case syntax"
 
 sexpToFunParam :: SExp -> ParseResult FunParam
 sexpToFunParam (SList [SAtom name, typeSexp]) =
   do
     type' <- sexpToTypeRef typeSexp
-    return $ FunParam name type'
+    pure $ FunParam name type'
 sexpToFunParam _ = Left "Bad param syntax"
 
 sexpsToExp :: [SExp] -> ParseResult Exp
 sexpsToExp (SList [SAtom "define", SAtom binding, valueSexp] : nextSexp : restSexp) = do
   value <- sexpToExp valueSexp
   rest <- sexpsToExp (nextSexp : restSexp)
-  return $ Let binding value rest
+  pure $ Let binding value rest
 sexpsToExp (firstSexp : nextSexp : restSexp) = do
   first <- sexpToExp firstSexp
   rest <- sexpsToExp (nextSexp : restSexp)
-  return $ Eseq first rest
+  pure $ Eseq first rest
 sexpsToExp [expr] = sexpToExp expr
 sexpsToExp [] = Left "Empty expression sequence"
 
@@ -136,27 +136,27 @@ sexpToExp (SList (SAtom "begin" : bodySexp)) = sexpsToExp bodySexp
 sexpToExp (SList (SAtom "let" : SList [SAtom binding, valueSexp] : bodySexp)) = do
   value <- sexpToExp valueSexp
   body <- sexpsToExp bodySexp
-  return $ Let binding value body
+  pure $ Let binding value body
 sexpToExp (SAtom str) =
   case readMaybe str of
-    Just v -> return $ IntLiteral v
+    Just v -> pure $ IntLiteral v
     Nothing -> case readMaybe str of
-      Just f -> return $ FloatLiteral f
+      Just f -> pure $ FloatLiteral f
       Nothing -> case str of
-        "#true" -> return $ BoolLiteral True
-        "#false" -> return $ BoolLiteral False
-        _ -> return $ VarRef str
+        "#true" -> pure $ BoolLiteral True
+        "#false" -> pure $ BoolLiteral False
+        _ -> pure $ VarRef str
 sexpToExp (SList [SAtom "set!", SAtom binding, valueSexp]) = do
   value <- sexpToExp valueSexp
-  return $ Assign binding value
+  pure $ Assign binding value
 sexpToExp (SList [SAtom "if", condSexp, trueSexp, falseSexp]) = do
   cond <- sexpToExp condSexp
   true <- sexpToExp trueSexp
   false <- sexpToExp falseSexp
-  return $ Ite cond true false
+  pure $ Ite cond true false
 sexpToExp (SList [SAtom ".", SAtom deref, valueSexp]) = do
   value <- sexpToExp valueSexp
-  return $ StructDeref value deref
+  pure $ StructDeref value deref
 sexpToExp (SList (SAtom "match" : valueSexp : casesSexps)) = do
   value <- sexpToExp valueSexp
   cases <-
@@ -165,13 +165,13 @@ sexpToExp (SList (SAtom "match" : valueSexp : casesSexps)) = do
         ( \case
             SList (SList [SAtom constructor, SAtom binding] : bodySexps) -> do
               body <- sexpsToExp bodySexps
-              return $ MatchCase {matchedConstructor = constructor, matchedBinding = binding, caseBody = body}
+              pure $ MatchCase {matchedConstructor = constructor, matchedBinding = binding, caseBody = body}
             _ -> Left "Bad case syntax"
         )
-  return $ Match value cases
+  pure $ Match value cases
 sexpToExp (SList (SAtom funName : argsSexps)) = do
   args <- mapM sexpToExp argsSexps
-  return
+  pure
     ( case args of
         [arg] -> case funName of
           "-" -> UniOp NegateInt arg

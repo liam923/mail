@@ -57,13 +57,13 @@ checkTypeDefs typeNames (StructDef name fields : rest) =
     restTypeEnv <- checkTypeDefs typeNames rest
     mapM_ (checkTypeRef typeNames . fieldType) fields
     () <- if Map.member name restTypeEnv then Left [i|Duplicate type name #{name}|] else Right ()
-    return (Map.insert name (Struct fields) restTypeEnv)
+    pure (Map.insert name (Struct fields) restTypeEnv)
 checkTypeDefs typeNames (UnionDef name constructors : rest) =
   do
     mapM_ (checkTypeRef typeNames . constructorType) constructors
     restTypeEnv <- checkTypeDefs typeNames rest
     () <- if Map.member name restTypeEnv then Left [i|Duplicate type name #{name}|] else Right ()
-    return (Map.insert name (Union constructors) restTypeEnv)
+    pure (Map.insert name (Union constructors) restTypeEnv)
 
 checkFunctionSignatures :: TypeEnv -> [Definition] -> CheckResult FunctionEnv
 checkFunctionSignatures _ [] = Right Map.empty
@@ -76,7 +76,7 @@ checkFunctionSignatures typeEnv (FunDef name params ret _ : rest) =
         retType <- checkTypeRef typeNames ret
         restFunctionEnv <- checkFunctionSignatures typeEnv rest
         () <- if Map.member name restFunctionEnv then Left [i|Duplicate function name #{name}|] else Right ()
-        return (Map.insert name (paramTypes, retType) restFunctionEnv)
+        pure (Map.insert name (paramTypes, retType) restFunctionEnv)
 
 checkFunctions :: TypeEnv -> FunctionEnv -> [Definition] -> CheckResult ()
 checkFunctions _ _ [] = Right ()
@@ -107,7 +107,7 @@ checkType env (Assign name value) =
   case Map.lookup name $ venv env of
     Just varType -> do
       checkAndExpect env varType value
-      return Unit
+      pure Unit
     Nothing -> Left [i|Undefined variable #{name}|]
 checkType env (Ite cond tBody fBody) =
   do
@@ -118,7 +118,7 @@ checkType env (Ite cond tBody fBody) =
       if tBodyType == fBodyType
         then Right ()
         else Left [i|If branches have type disagreement; true branch has type #{tBodyType}, false branch has type #{fBodyType}|]
-    return tBodyType
+    pure tBodyType
 checkType env (Call funName args) =
   do
     (paramTypes, retType) <-
@@ -130,7 +130,7 @@ checkType env (Call funName args) =
     let actualArgNum = length args
     () <- (if expectedArgNum == actualArgNum then Right () else Left [i|Expected #{expectedArgNum} arguments, got #{actualArgNum}|])
     () <- mapM_ (uncurry (checkAndExpect env)) $ List.zip paramTypes args
-    return retType
+    pure retType
 checkType env (StructDeref struct deref) =
   do
     structType <- checkType env struct
@@ -189,23 +189,23 @@ checkType env (Match value cases) =
       [] -> Left "Empty match statement"
       (headType : restTypes) ->
         if all (== headType) restTypes then Right headType else Left [i|Match branch disagreement|]
-checkType _ (IntLiteral _) = return Int
-checkType _ (FloatLiteral _) = return Float
-checkType _ (BoolLiteral _) = return Bool
+checkType _ (IntLiteral _) = pure Int
+checkType _ (FloatLiteral _) = pure Float
+checkType _ (BoolLiteral _) = pure Bool
 checkType env (UniOp NegateInt arg) =
   do
     checkAndExpect env Int arg
-    return Int
+    pure Int
 checkType env (UniOp NegateBool arg) =
   do
     checkAndExpect env Bool arg
-    return Bool
+    pure Bool
 checkType env (BinOp op arg1 arg2) =
   let opType = binopType op
    in do
         checkAndExpect env opType arg1
         checkAndExpect env opType arg2
-        return opType
+        pure opType
 
 checkAndExpect :: Env -> TypeRef -> Exp -> Either TypeError ()
 checkAndExpect env expected expr =
