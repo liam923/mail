@@ -10,6 +10,9 @@ data Exp
   | Ite Exp Exp Exp
   | Call String [Exp]
   | Match Exp [MatchCase]
+  | Alloc TypeRef Exp
+  | Dealloc Exp
+  | SetPointer Exp Exp
   | IntLiteral Integer
   | FloatLiteral Double
   | BoolLiteral Bool
@@ -23,6 +26,7 @@ data TypeRef
   | Float
   | Bool
   | Unit
+  | TypePtr TypeRef
   | TypeRef String
   deriving (Eq, Show)
 

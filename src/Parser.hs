@@ -94,6 +94,7 @@ sexpToTypeRef (SAtom "Int") = pure Int
 sexpToTypeRef (SAtom "Float") = pure Float
 sexpToTypeRef (SAtom "Bool") = pure Bool
 sexpToTypeRef (SList []) = pure Unit
+sexpToTypeRef (SList [SAtom "Ptr", tSexp]) = TypePtr <$> sexpToTypeRef tSexp
 sexpToTypeRef (SAtom sym) = pure $ TypeRef sym
 sexpToTypeRef _ = Left "Bad type syntax"
 
@@ -148,6 +149,15 @@ sexpToExp (SAtom str) =
 sexpToExp (SList [SAtom "set!", SAtom binding, valueSexp]) = do
   value <- sexpToExp valueSexp
   pure $ Assign binding value
+sexpToExp (SList [SAtom "set-ptr!", ptrSexp, valueSexp]) = do
+  ptr <- sexpToExp ptrSexp
+  value <- sexpToExp valueSexp
+  pure $ SetPointer ptr value
+sexpToExp (SList [SAtom "alloc", typeSexp, valueSexp]) = do
+  type' <- sexpToTypeRef typeSexp
+  value <- sexpToExp valueSexp
+  pure $ Alloc type' value
+sexpToExp (SList [SAtom "dealloc", valueSexp]) = Dealloc <$> sexpToExp valueSexp
 sexpToExp (SList [SAtom "if", condSexp, trueSexp, falseSexp]) = do
   cond <- sexpToExp condSexp
   true <- sexpToExp trueSexp
