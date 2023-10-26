@@ -5,14 +5,12 @@
 module Generator where
 
 import Checked
-import Data.ByteString.Short as BLU
 import Data.String.Interpolate (i)
 import LLVM.AST hiding (function)
 import LLVM.AST.Type as AST
 import LLVM.IRBuilder.Constant as C
 import LLVM.IRBuilder.Instruction
 import LLVM.IRBuilder.Module
-import LLVM.IRBuilder.Monad (block, named)
 
 -- import qualified LLVM.Module as LLVM
 
@@ -50,6 +48,6 @@ gen progName _ =
     printNum <- extern "printNum" [AST.i64] AST.VoidType
 
     function "main" [(AST.i32, "a"), (AST.i32, "a")] AST.i32 $ \_ -> do
-      -- _ <- add (C.int32 10) (LocalReference AST.i32 "hi")
+      _ <- add (C.int32 10) (C.int32 20) >>= add (C.int32 10)
       _ <- call printNum [(C.int64 69420, [])]
       ret (C.int32 0)

@@ -245,6 +245,10 @@ checkType env (U.Ite cond tBody fBody) =
         then pure ()
         else lift $ Left [i|If branches have type disagreement; true branch has type #{tBodyType}, false branch has type #{fBodyType}|]
     pure $ T.WithType (T.Ite checkedCond checkedTBody checkedFBody) tBodyType
+checkType env (U.While cond body) = do
+  checkedCond <- checkAndExpect env T.Bool cond
+  checkedBody <- checkAndExpect env T.Unit body
+  pure $ T.WithType (T.While checkedCond checkedBody) T.Unit
 checkType env (U.Call funName args) = case Map.lookup funName stdlib of
   Just (BinOpEntry binOp arg1Type arg2Type retType) -> do
     (arg1, arg2) <-

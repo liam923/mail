@@ -18,6 +18,7 @@ data UntypedExp
   | Eseq Exp Exp
   | Assign Identifier Exp
   | Ite Exp Exp Exp
+  | While Exp Exp
   | FunCall Identifier [Exp]
   | StructMake Identifier [Exp]
   | StructDeref Exp Integer

@@ -163,6 +163,10 @@ sexpToExp (SList [SAtom "if", condSexp, trueSexp, falseSexp]) = do
   true <- sexpToExp trueSexp
   false <- sexpToExp falseSexp
   pure $ Ite cond true false
+sexpToExp (SList (SAtom "while" : condSexp : bodySexps)) = do
+  cond <- sexpToExp condSexp
+  body <- sexpsToExp bodySexps
+  pure $ While cond body
 sexpToExp (SList (SAtom "match" : valueSexp : casesSexps)) = do
   value <- sexpToExp valueSexp
   cases <-

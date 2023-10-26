@@ -8,6 +8,7 @@ data Exp
   | Eseq Exp Exp
   | Assign String Exp
   | Ite Exp Exp Exp
+  | While Exp Exp
   | Call String [Exp]
   | Match Exp [MatchCase]
   | Alloc TypeRef Exp
