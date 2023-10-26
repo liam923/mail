@@ -5,7 +5,6 @@ module Parser (parseProgram, ParseResult) where
 
 import Ast
 import Data.Char (isSpace)
-import Data.Foldable (find)
 import Data.Function ((&))
 import Data.Functor.Identity (Identity)
 import Data.String.Interpolate (i)
@@ -77,10 +76,10 @@ sexpsToProgram sexps =
     _ -> Left "Empty program"
 
 sexpToDefinition :: SExp -> ParseResult Definition
-sexpToDefinition (SList [SAtom "struct", SAtom name, SList fieldsSexp]) = do
+sexpToDefinition (SList (SAtom "struct" : SAtom name : fieldsSexp)) = do
   fields <- mapM sexpToStructField fieldsSexp
   pure $ StructDef name fields
-sexpToDefinition (SList [SAtom "union", SAtom name, SList casesSexp]) = do
+sexpToDefinition (SList (SAtom "union" : SAtom name : casesSexp)) = do
   cases <- mapM sexpToUnionConstructor casesSexp
   pure $ UnionDef name cases
 sexpToDefinition (SList (SAtom "define" : SAtom name : SList paramsSexp : SAtom "->" : retTypeSexp : bodySexp)) = do
@@ -94,7 +93,7 @@ sexpToTypeRef :: SExp -> ParseResult TypeRef
 sexpToTypeRef (SAtom "Int") = pure Int
 sexpToTypeRef (SAtom "Float") = pure Float
 sexpToTypeRef (SAtom "Bool") = pure Bool
-sexpToTypeRef (SAtom "Unit") = pure Unit
+sexpToTypeRef (SList []) = pure Unit
 sexpToTypeRef (SAtom sym) = pure $ TypeRef sym
 sexpToTypeRef _ = Left "Bad type syntax"
 
@@ -154,9 +153,6 @@ sexpToExp (SList [SAtom "if", condSexp, trueSexp, falseSexp]) = do
   true <- sexpToExp trueSexp
   false <- sexpToExp falseSexp
   pure $ Ite cond true false
-sexpToExp (SList [SAtom ".", SAtom deref, valueSexp]) = do
-  value <- sexpToExp valueSexp
-  pure $ StructDeref value deref
 sexpToExp (SList (SAtom "match" : valueSexp : casesSexps)) = do
   value <- sexpToExp valueSexp
   cases <-
@@ -171,42 +167,8 @@ sexpToExp (SList (SAtom "match" : valueSexp : casesSexps)) = do
   pure $ Match value cases
 sexpToExp (SList (SAtom funName : argsSexps)) = do
   args <- mapM sexpToExp argsSexps
-  pure
-    ( case args of
-        [arg] -> case funName of
-          "-" -> UniOp NegateInt arg
-          "not" -> UniOp NegateBool arg
-          _ -> Call funName [arg]
-        [arg1, arg2] ->
-          let ops =
-                [ ("+", IntPlus),
-                  ("-", IntMinus),
-                  ("*", IntMul),
-                  ("/", IntDiv),
-                  ("=", IntEQ),
-                  ("!=", IntNE),
-                  ("<", IntLT),
-                  ("<=", IntLE),
-                  (">", IntGT),
-                  (">=", IntGE),
-                  ("+.", FloatPlus),
-                  ("-.", FloatMinus),
-                  ("*.", FloatMul),
-                  ("/.", FloatDiv),
-                  ("=.", FloatEQ),
-                  ("!=.", FloatNE),
-                  ("<.", FloatLT),
-                  ("<=.", FloatLE),
-                  (">.", FloatGT),
-                  (">=.", FloatGE),
-                  ("and", And),
-                  ("or", Or)
-                ]
-           in case find (\(opName, _) -> funName == opName) ops of
-                Just (_, op) -> BinOp op arg1 arg2
-                Nothing -> Call funName [arg1, arg2]
-        _ -> Call funName args
-    )
+  pure $ Call funName args
+sexpToExp (SList []) = pure UnitLiteral
 sexpToExp expr = Left [i|Bad expression syntax #{expr}|]
 
 parseSexps :: String -> String -> ParseResult [SExp]
