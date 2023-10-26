@@ -68,9 +68,9 @@ checkTypeRefInSig _ _ U.Int = pure (Set.empty, Map.empty, T.Int)
 checkTypeRefInSig _ _ U.Float = pure (Set.empty, Map.empty, T.Float)
 checkTypeRefInSig _ _ U.Bool = pure (Set.empty, Map.empty, T.Bool)
 checkTypeRefInSig _ _ U.Unit = pure (Set.empty, Map.empty, T.Unit)
-checkTypeRefInSig _ ids (U.BoxType t) = do
+checkTypeRefInSig _ ids (U.TypePtr t) = do
   (needs, newIds, checkedT) <- checkTypeRefInSig Nothing ids t
-  pure (needs, newIds, T.BoxType checkedT)
+  pure (needs, newIds, T.TypePtr checkedT)
 checkTypeRefInSig seen ids (U.TypeRef ref) = do
   ( case seen of
       Just seenJ -> if Set.member ref seenJ then pure () else lift $ Left [i||]
@@ -80,6 +80,16 @@ checkTypeRefInSig seen ids (U.TypeRef ref) = do
       Just refId -> pure (Set.singleton ref, ids, T.TypeRef refId)
       Nothing -> getId ref >>= \refId -> pure (Set.singleton ref, Map.insert ref refId ids, T.TypeRef refId)
     )
+
+checkTypeRef :: Env -> U.TypeRef -> CheckState T.TypeRef
+checkTypeRef _ U.Int = pure T.Int
+checkTypeRef _ U.Float = pure T.Float
+checkTypeRef _ U.Bool = pure T.Bool
+checkTypeRef _ U.Unit = pure T.Unit
+checkTypeRef env (U.TypePtr t) = T.TypePtr <$> checkTypeRef env t
+checkTypeRef env (U.TypeRef ref) = case Map.lookup ref $ tids env of
+  Just refId -> pure $ T.TypeRef refId
+  Nothing -> lift $ Left [i|Undefined type #{ref}|]
 
 findDuplicate :: (Ord a) => [a] -> Maybe a
 findDuplicate = loop Set.empty
@@ -217,6 +227,12 @@ checkType env (U.Eseq expr body) =
     checkedExpr <- checkAndExpect env T.Unit expr
     checkedBody <- checkType env body
     pure $ T.WithType (T.Eseq checkedExpr checkedBody) (T.type' checkedBody)
+checkType env (U.Assign name value) =
+  case Map.lookup name $ lenv env of
+    Just (varId, varType) -> do
+      checkedValue <- checkAndExpect env varType value
+      pure $ T.WithType (T.Assign varId checkedValue) T.Unit
+    Nothing -> lift $ Left [i|Undefined variable #{name}|]
 checkType env (U.Ite cond tBody fBody) =
   do
     checkedCond <- checkAndExpect env T.Bool cond
@@ -288,7 +304,7 @@ checkType env (U.Match value cases) =
       T.Bool -> lift $ Left notUnionError
       T.Float -> lift $ Left notUnionError
       T.Unit -> lift $ Left notUnionError
-      T.BoxType _ -> lift $ Left notUnionError
+      T.TypePtr _ -> lift $ Left notUnionError
       T.TypeRef ref -> case Map.lookup ref $ tenv env of
         Just (T.Union constructors) -> pure constructors
         Just (T.Struct _) -> lift $ Left notUnionError
@@ -330,25 +346,26 @@ checkType env (U.Match value cases) =
               (headType : restTypes) ->
                 if all (== headType) restTypes then pure headType else lift $ Left [i|Match branch disagreement|]
           )
-checkType env (U.Box value) = do
-  checkedValue <- checkType env value
-  pure $ T.WithType (T.Box checkedValue) (T.BoxType $ T.type' checkedValue)
-checkType env (U.Dealloc box) = do
-  checkedBox <- checkType env box
-  ( case T.type' checkedBox of
-      T.BoxType _ -> pure ()
-      t -> lift $ Left [i|Expected box type, got #{t}|]
+checkType env (U.Alloc type' value) = do
+  checkedType <- checkTypeRef env type'
+  checkedValue <- checkAndExpect env checkedType value
+  pure $ T.WithType (T.Alloc checkedType checkedValue) (T.TypePtr checkedType)
+checkType env (U.Dealloc ptr) = do
+  checkedPtr <- checkType env ptr
+  ( case T.type' checkedPtr of
+      T.TypePtr _ -> pure ()
+      t -> lift $ Left [i|Expected pointer type, got #{t}|]
     )
-  pure $ T.WithType (T.Dealloc checkedBox) T.Unit
-checkType env (U.SetBox box value) = do
-  checkedBox <- checkType env box
+  pure $ T.WithType (T.Dealloc checkedPtr) T.Unit
+checkType env (U.SetPointer ptr value) = do
+  checkedPtr <- checkType env ptr
   boxedType <-
-    ( case T.type' checkedBox of
-        T.BoxType t -> pure t
-        t -> lift $ Left [i|Expected box type, got #{t}|]
+    ( case T.type' checkedPtr of
+        T.TypePtr t -> pure t
+        t -> lift $ Left [i|Expected pointer type, got #{t}|]
       )
   checkedValue <- checkAndExpect env boxedType value
-  pure $ T.WithType (T.SetBox checkedBox checkedValue) T.Unit
+  pure $ T.WithType (T.SetPointer checkedPtr checkedValue) T.Unit
 checkType _ (U.IntLiteral v) = pure $ T.WithType (T.IntLiteral v) T.Int
 checkType _ (U.FloatLiteral f) = pure $ T.WithType (T.FloatLiteral f) T.Float
 checkType _ (U.BoolLiteral b) = pure $ T.WithType (T.BoolLiteral b) T.Bool

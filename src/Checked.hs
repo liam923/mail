@@ -23,9 +23,9 @@ data UntypedExp
   | StructDeref Exp Integer
   | UnionMake Identifier Integer Exp
   | Match Exp [MatchCase]
-  | Box Exp
+  | Alloc TypeRef Exp
   | Dealloc Exp
-  | SetBox Exp Exp
+  | SetPointer Exp Exp
   | IntLiteral Integer
   | FloatLiteral Double
   | BoolLiteral Bool
@@ -43,7 +43,7 @@ data TypeRef
   | Float
   | Bool
   | Unit
-  | BoxType TypeRef
+  | TypePtr TypeRef
   | TypeRef Identifier
   deriving (Eq)
 
@@ -52,7 +52,7 @@ instance Show TypeRef where
   show Float = "Float"
   show Bool = "Bool"
   show Unit = "Unit"
-  show (BoxType t) = [i|(Box #{t})|]
+  show (TypePtr t) = [i|(Ptr #{t})|]
   show (TypeRef t) = show t
 
 data FunParam = FunParam {paramName :: Identifier, paramType :: TypeRef} deriving (Show)
