@@ -1,24 +1,19 @@
 {-# LANGUAGE QuasiQuotes #-}
 
-module Compiler where
+module Compiler (compile, printLLVM, writeLLVM) where
 
-import qualified Data.ByteString.Char8 as BS
 import Data.String.Interpolate (i)
-import qualified LLVM
+import qualified Data.Text.Lazy.IO as T
 import qualified LLVM.AST
-import qualified LLVM.Context
+import LLVM.Pretty (ppllvm)
 import Paths_mail (getDataFileName)
 import System.Process (callProcess)
 
-bsLLVM :: LLVM.AST.Module -> IO BS.ByteString
-bsLLVM modl = LLVM.Context.withContext $ \ctx ->
-  LLVM.withModuleFromAST ctx modl LLVM.moduleLLVMAssembly
-
 printLLVM :: LLVM.AST.Module -> IO ()
-printLLVM modl = bsLLVM modl >>= BS.putStrLn
+printLLVM modl = T.putStr $ ppllvm modl
 
 writeLLVM :: FilePath -> LLVM.AST.Module -> IO ()
-writeLLVM path modl = bsLLVM modl >>= BS.writeFile path
+writeLLVM path modl = T.writeFile path $ ppllvm modl
 
 compile :: String -> LLVM.AST.Module -> IO FilePath
 compile name modl = do

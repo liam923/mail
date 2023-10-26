@@ -9,12 +9,12 @@ import Data.ByteString.Short as BLU
 import Data.String.Interpolate (i)
 import LLVM.AST hiding (function)
 import LLVM.AST.Type as AST
-import LLVM.Context
 import LLVM.IRBuilder.Constant as C
 import LLVM.IRBuilder.Instruction
 import LLVM.IRBuilder.Module
 import LLVM.IRBuilder.Monad (block, named)
-import qualified LLVM.Module as LLVM
+
+-- import qualified LLVM.Module as LLVM
 
 -- simple :: LLVM.AST.Module
 -- simple = buildModule "exampleModule" $ mdo
@@ -49,6 +49,7 @@ gen progName _ =
   buildModule [i|#{progName}|] $ mdo
     printNum <- extern "printNum" [AST.i64] AST.VoidType
 
-    function "main" [] AST.i32 $ \_ -> do
+    function "main" [(AST.i32, "a"), (AST.i32, "a")] AST.i32 $ \_ -> do
+      -- _ <- add (C.int32 10) (LocalReference AST.i32 "hi")
       _ <- call printNum [(C.int64 69420, [])]
       ret (C.int32 0)

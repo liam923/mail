@@ -18,7 +18,6 @@ library
     build-depends:
         base            >=4.7   && <4.14,
         bytestring      >=0.10  && <0.11,
-        llvm-hs         >=9.0   && <9.1,
         llvm-hs-pretty  >=0.9   && <0.10,
         llvm-hs-pure    >=9.0   && <9.1,
         mtl             >=2.2.2 && <2.3,
