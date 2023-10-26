@@ -6,13 +6,12 @@ data Exp
   = Let String Exp Exp
   | VarRef String
   | Eseq Exp Exp
-  | Assign String Exp
   | Ite Exp Exp Exp
   | Call String [Exp]
   | Match Exp [MatchCase]
-  | Alloc TypeRef Exp
+  | Box Exp
   | Dealloc Exp
-  | SetPointer Exp Exp
+  | SetBox Exp Exp
   | IntLiteral Integer
   | FloatLiteral Double
   | BoolLiteral Bool
@@ -26,7 +25,7 @@ data TypeRef
   | Float
   | Bool
   | Unit
-  | TypePtr TypeRef
+  | BoxType TypeRef
   | TypeRef String
   deriving (Eq, Show)
 

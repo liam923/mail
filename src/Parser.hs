@@ -94,7 +94,7 @@ sexpToTypeRef (SAtom "Int") = pure Int
 sexpToTypeRef (SAtom "Float") = pure Float
 sexpToTypeRef (SAtom "Bool") = pure Bool
 sexpToTypeRef (SList []) = pure Unit
-sexpToTypeRef (SList [SAtom "Ptr", tSexp]) = TypePtr <$> sexpToTypeRef tSexp
+sexpToTypeRef (SList [SAtom "Box", tSexp]) = BoxType <$> sexpToTypeRef tSexp
 sexpToTypeRef (SAtom sym) = pure $ TypeRef sym
 sexpToTypeRef _ = Left "Bad type syntax"
 
@@ -146,17 +146,11 @@ sexpToExp (SAtom str) =
         "#true" -> pure $ BoolLiteral True
         "#false" -> pure $ BoolLiteral False
         _ -> pure $ VarRef str
-sexpToExp (SList [SAtom "set!", SAtom binding, valueSexp]) = do
+sexpToExp (SList [SAtom "set!", boxSexp, valueSexp]) = do
+  box <- sexpToExp boxSexp
   value <- sexpToExp valueSexp
-  pure $ Assign binding value
-sexpToExp (SList [SAtom "set-ptr!", ptrSexp, valueSexp]) = do
-  ptr <- sexpToExp ptrSexp
-  value <- sexpToExp valueSexp
-  pure $ SetPointer ptr value
-sexpToExp (SList [SAtom "alloc", typeSexp, valueSexp]) = do
-  type' <- sexpToTypeRef typeSexp
-  value <- sexpToExp valueSexp
-  pure $ Alloc type' value
+  pure $ SetBox box value
+sexpToExp (SList [SAtom "box", valueSexp]) = Box <$> sexpToExp valueSexp
 sexpToExp (SList [SAtom "dealloc", valueSexp]) = Dealloc <$> sexpToExp valueSexp
 sexpToExp (SList [SAtom "if", condSexp, trueSexp, falseSexp]) = do
   cond <- sexpToExp condSexp
