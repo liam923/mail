@@ -24,3 +24,5 @@ cabal.project.local~
 
 .vscode
 test.mail
+test
+test.ll

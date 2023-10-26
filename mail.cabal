@@ -4,9 +4,17 @@ version:            0.1.0.0
 
 author:             Liam Stevenson
 
+extra-source-files:
+    README.md
+data-files:
+    runtime.c
+
 
 library
-    exposed-modules:  Ast, Checker, Checked, Stdlib, Parser, Generator
+    exposed-modules:  Ast, Compiler, Checker, Checked, Stdlib, Parser, Generator
+    other-modules: Paths_mail
+    autogen-modules: Paths_mail
+
     build-depends:
         base            >=4.7   && <4.14,
         bytestring      >=0.10  && <0.11,
@@ -20,7 +28,8 @@ library
         megaparsec,
         recursion-schemes  >=5.1   && <5.2,
         containers,
-        transformers       >=0.5   && <0.6
+        transformers       >=0.5   && <0.6,
+        process
 
     ghc-options: -Wall
 
@@ -32,6 +41,7 @@ executable mail
 
     build-depends:
         base            >=4.7   && <4.14,
+        filepath,
         mail
 
     ghc-options: -Wall
