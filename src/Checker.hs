@@ -17,6 +17,7 @@ import Data.Maybe
 import Data.Set (Set)
 import qualified Data.Set as Set
 import Data.String.Interpolate (i)
+import Data.Word (Word32)
 import Stdlib
 
 type TypeError = String
@@ -29,8 +30,8 @@ type FunSignature = ([T.FunParam], T.TypeRef)
 
 data Signature
   = NewStructSignature T.Identifier [T.StructField]
-  | StructDerefSignature T.Identifier T.StructField Integer
-  | UnionConstructorSignature T.Identifier T.UnionConstructor Integer
+  | StructDerefSignature T.Identifier T.StructField Word32
+  | UnionConstructorSignature T.Identifier T.UnionConstructor Word32
   | FunSignature T.Identifier FunSignature
 
 type TypeIds = Map String T.Identifier
@@ -63,33 +64,26 @@ check (U.Program defs body) =
       checkedBody <- checkAndExpect (Env {tids = typeIds, tenv = typeEnv, fenv = functionEnv, lenv = Map.empty}) T.Int body
       pure $ T.Program typeEnv functions checkedBody
 
-checkTypeRefInSig :: Maybe (Set String) -> Map String Identifier -> U.TypeRef -> CheckState (Set String, Map String Identifier, T.TypeRef)
-checkTypeRefInSig _ _ U.Int = pure (Set.empty, Map.empty, T.Int)
-checkTypeRefInSig _ _ U.Float = pure (Set.empty, Map.empty, T.Float)
-checkTypeRefInSig _ _ U.Bool = pure (Set.empty, Map.empty, T.Bool)
-checkTypeRefInSig _ _ U.Unit = pure (Set.empty, Map.empty, T.Unit)
-checkTypeRefInSig _ ids (U.TypePtr t) = do
-  (needs, newIds, checkedT) <- checkTypeRefInSig Nothing ids t
+checkTypeRef :: Maybe (Set String) -> Map String Identifier -> U.TypeRef -> CheckState (Set String, Map String Identifier, T.TypeRef)
+checkTypeRef _ ids U.Int = pure (Set.empty, ids, T.Int)
+checkTypeRef _ ids U.Float = pure (Set.empty, ids, T.Float)
+checkTypeRef _ ids U.Bool = pure (Set.empty, ids, T.Bool)
+checkTypeRef _ ids U.Unit = pure (Set.empty, ids, T.Unit)
+checkTypeRef _ ids (U.TypePtr t) = do
+  (needs, newIds, checkedT) <- checkTypeRef Nothing ids t
   pure (needs, newIds, T.TypePtr checkedT)
-checkTypeRefInSig seen ids (U.TypeRef ref) = do
+checkTypeRef seen ids (U.TypeRef ref) = do
   ( case seen of
-      Just seenJ -> if Set.member ref seenJ then pure () else lift $ Left [i||]
+      Just seenJ ->
+        if Set.member ref seenJ
+          then pure ()
+          else lift $ Left [i|Type references inside unions and structs must be pointers if they refer to a type declared after it; #{ref} was used before its definition|]
       Nothing -> pure ()
     )
   ( case Map.lookup ref ids of
       Just refId -> pure (Set.singleton ref, ids, T.TypeRef refId)
       Nothing -> getId ref >>= \refId -> pure (Set.singleton ref, Map.insert ref refId ids, T.TypeRef refId)
     )
-
-checkTypeRef :: Env -> U.TypeRef -> CheckState T.TypeRef
-checkTypeRef _ U.Int = pure T.Int
-checkTypeRef _ U.Float = pure T.Float
-checkTypeRef _ U.Bool = pure T.Bool
-checkTypeRef _ U.Unit = pure T.Unit
-checkTypeRef env (U.TypePtr t) = T.TypePtr <$> checkTypeRef env t
-checkTypeRef env (U.TypeRef ref) = case Map.lookup ref $ tids env of
-  Just refId -> pure $ T.TypeRef refId
-  Nothing -> lift $ Left [i|Undefined type #{ref}|]
 
 findDuplicate :: (Ord a) => [a] -> Maybe a
 findDuplicate = loop Set.empty
@@ -104,10 +98,10 @@ mapi f l = loop l [] 0
     loop (x : xs) acc ix = loop xs (f ix x : acc) (ix + 1)
 
 checkSignatures :: [U.Definition] -> CheckState (FunctionEnv, Map String (Identifier, T.Type), [(Identifier, FunSignature, U.Exp)])
-checkSignatures = loop (Map.keysSet stdlib) (Map.keysSet stdlib) Set.empty Map.empty
+checkSignatures = loop Set.empty (Map.keysSet stdlib) Set.empty Map.empty
   where
     loop :: Set String -> Set String -> Set String -> Map String Identifier -> [U.Definition] -> CheckState (FunctionEnv, Map String (Identifier, T.Type), [(Identifier, FunSignature, U.Exp)])
-    loop _ _ needs _ [] = case Set.toList needs of
+    loop _ seen needs _ [] = case Set.toList $ Set.difference needs seen of
       [] -> pure (Map.empty, Map.empty, [])
       (name : _) -> lift $ Left [i|Undefined type #{name}|]
     loop seenTypes seen needs ids (U.FunDef funName params ret funBody : rest) = do
@@ -122,13 +116,13 @@ checkSignatures = loop (Map.keysSet stdlib) (Map.keysSet stdlib) Set.empty Map.e
           ( \acc (U.FunParam paramName type') -> do
               paramId <- getId paramName
               (needsSoFar, idsSoFar, paramsSoFar) <- acc
-              (paramNeeds, newIds, checkedType) <- checkTypeRefInSig (Just seenTypes) idsSoFar type'
+              (paramNeeds, newIds, checkedType) <- checkTypeRef Nothing idsSoFar type'
               pure (Set.union needsSoFar paramNeeds, newIds, T.FunParam paramId checkedType : paramsSoFar)
           )
           (pure (Set.empty, ids, []))
           params
       let checkedParams = reverse checkedParamsRev
-      (retNeeds, idsAfterRet, checkedRet) <- checkTypeRefInSig (Just seenTypes) idsAfterParams ret
+      (retNeeds, idsAfterRet, checkedRet) <- checkTypeRef Nothing idsAfterParams ret
       let newNeeds = Set.unions [needs, paramNeeds, retNeeds]
       let signature = (checkedParams, checkedRet)
       (restEnv, restTypes, restFuns) <- loop seenTypes (Set.insert funName seen) newNeeds idsAfterRet rest
@@ -137,9 +131,19 @@ checkSignatures = loop (Map.keysSet stdlib) (Map.keysSet stdlib) Set.empty Map.e
           restTypes,
           (funId, signature, funBody) : restFuns
         )
-    loop seenTypes seen needs ids (U.StructDef structName fields : rest) =
+    loop seenTypes seen needs idsWithoutStruct (U.StructDef structName fields : rest) =
       do
-        structId <- (if Set.member structName seen then lift $ Left [i|Duplicate name for struct #{structName}|] else getId structName)
+        (structId, ids) <-
+          ( if Set.member structName seen
+              then lift $ Left [i|Duplicate name for struct #{structName}|]
+              else
+                ( case Map.lookup structName idsWithoutStruct of
+                    Just sid -> pure (sid, idsWithoutStruct)
+                    Nothing -> do
+                      sid <- getId structName
+                      pure (sid, Map.insert structName sid idsWithoutStruct)
+                )
+            )
         () <-
           ( case fields & map U.fieldName & findDuplicate of
               Just fieldName -> lift $ Left [i|Duplicate fields #{fieldName}|]
@@ -150,7 +154,7 @@ checkSignatures = loop (Map.keysSet stdlib) (Map.keysSet stdlib) Set.empty Map.e
             ( \acc (U.StructField fieldName type') -> do
                 (seenSoFar, needsSoFar, idsSoFar, fieldsSoFar) <- acc
                 (if Set.member fieldName seenSoFar then lift $ Left [i|Duplicate name for struct field #{fieldName}|] else pure ())
-                (fieldNeeds, newIds, checkedType) <- checkTypeRefInSig (Just seenTypes) idsSoFar type'
+                (fieldNeeds, newIds, checkedType) <- checkTypeRef (Just seenTypes) idsSoFar type'
                 pure (Set.insert fieldName seenSoFar, Set.union needsSoFar fieldNeeds, newIds, T.StructField fieldName checkedType : fieldsSoFar)
             )
             (pure (Set.insert structName seen, Set.empty, ids, []))
@@ -165,9 +169,19 @@ checkSignatures = loop (Map.keysSet stdlib) (Map.keysSet stdlib) Set.empty Map.e
             Map.insert structName (structId, T.Struct checkedFields) restTypes,
             restFuns
           )
-    loop seenTypes seen needs ids (U.UnionDef unionName constructors : rest) =
+    loop seenTypes seen needs idsWithoutUnion (U.UnionDef unionName constructors : rest) =
       do
-        unionId <- (if Set.member unionName seen then lift $ Left [i|Duplicate name for union #{unionName}|] else getId unionName)
+        (unionId, ids) <-
+          ( if Set.member unionName seen
+              then lift $ Left [i|Duplicate name for union #{unionName}|]
+              else
+                ( case Map.lookup unionName idsWithoutUnion of
+                    Just uid -> pure (uid, idsWithoutUnion)
+                    Nothing -> do
+                      uid <- getId unionName
+                      pure (uid, Map.insert unionName uid idsWithoutUnion)
+                )
+            )
         () <-
           ( case constructors & map U.constructorName & findDuplicate of
               Just constructorName -> lift $ Left [i|Duplicate constructors #{constructorName}|]
@@ -178,7 +192,7 @@ checkSignatures = loop (Map.keysSet stdlib) (Map.keysSet stdlib) Set.empty Map.e
             ( \acc (U.UnionConstructor constructorName type') -> do
                 (seenSoFar, needsSoFar, idsSoFar, constructorsSoFar) <- acc
                 (if Set.member constructorName seenSoFar then lift $ Left [i|Duplicate name for union constructor #{constructorName}|] else pure ())
-                (constructorNeeds, newIds, checkedType) <- checkTypeRefInSig (Just seenTypes) idsSoFar type'
+                (constructorNeeds, newIds, checkedType) <- checkTypeRef (Just seenTypes) idsSoFar type'
                 pure
                   ( Set.insert constructorName seenSoFar,
                     Set.union needsSoFar constructorNeeds,
@@ -350,10 +364,9 @@ checkType env (U.Match value cases) =
               (headType : restTypes) ->
                 if all (== headType) restTypes then pure headType else lift $ Left [i|Match branch disagreement|]
           )
-checkType env (U.Alloc type' value) = do
-  checkedType <- checkTypeRef env type'
-  checkedValue <- checkAndExpect env checkedType value
-  pure $ T.WithType (T.Alloc checkedType checkedValue) (T.TypePtr checkedType)
+checkType env (U.Alloc value) = do
+  checkedValue <- checkType env value
+  pure $ T.WithType (T.Alloc checkedValue) (T.TypePtr $ T.type' checkedValue)
 checkType env (U.Dealloc ptr) = do
   checkedPtr <- checkType env ptr
   ( case T.type' checkedPtr of
@@ -370,6 +383,13 @@ checkType env (U.SetPointer ptr value) = do
       )
   checkedValue <- checkAndExpect env boxedType value
   pure $ T.WithType (T.SetPointer checkedPtr checkedValue) T.Unit
+checkType env (U.GetPointer ptr) = do
+  checkedPtr <- checkType env ptr
+  T.WithType (T.GetPointer checkedPtr)
+    <$> ( case T.type' checkedPtr of
+            T.TypePtr t -> pure t
+            t -> lift $ Left [i|Expected pointer type, got #{t}|]
+        )
 checkType _ (U.IntLiteral v) = pure $ T.WithType (T.IntLiteral v) T.Int
 checkType _ (U.FloatLiteral f) = pure $ T.WithType (T.FloatLiteral f) T.Float
 checkType _ (U.BoolLiteral b) = pure $ T.WithType (T.BoolLiteral b) T.Bool

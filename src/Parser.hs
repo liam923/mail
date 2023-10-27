@@ -34,7 +34,7 @@ skipSpace =
   L.space
     space1
     (L.skipLineComment ";")
-    (L.skipBlockCommentNested "(*" "*)")
+    (L.skipBlockCommentNested "#|" "|#")
 
 lexeme :: Parser a -> Parser a
 lexeme = L.lexeme skipSpace
@@ -52,7 +52,7 @@ list =
 
 symbol :: Parser String
 symbol =
-  let iSAtomChar c = (not . isSpace $ c) && notElem c "()[]{}\",'`;#|\\"
+  let iSAtomChar c = (not . isSpace $ c) && notElem c "()[]{}\",'`;|\\"
    in label "symbol" $
         lexeme $
           some $
@@ -69,8 +69,8 @@ sexp =
 sexpsToProgram :: [SExp] -> ParseResult Program
 sexpsToProgram sexps =
   case reverse sexps of
-    (bodySexp : defsSexps) -> do
-      defs <- mapM sexpToDefinition defsSexps
+    (bodySexp : defsRevSexps) -> do
+      defs <- mapM sexpToDefinition $ reverse defsRevSexps
       body <- sexpToExp bodySexp
       pure $ Program defs body
     _ -> Left "Empty program"
@@ -153,10 +153,8 @@ sexpToExp (SList [SAtom "set-ptr!", ptrSexp, valueSexp]) = do
   ptr <- sexpToExp ptrSexp
   value <- sexpToExp valueSexp
   pure $ SetPointer ptr value
-sexpToExp (SList [SAtom "alloc", typeSexp, valueSexp]) = do
-  type' <- sexpToTypeRef typeSexp
-  value <- sexpToExp valueSexp
-  pure $ Alloc type' value
+sexpToExp (SList [SAtom "get-ptr!", ptrSexp]) = GetPointer <$> sexpToExp ptrSexp
+sexpToExp (SList [SAtom "alloc", valueSexp]) = Alloc <$> sexpToExp valueSexp
 sexpToExp (SList [SAtom "dealloc", valueSexp]) = Dealloc <$> sexpToExp valueSexp
 sexpToExp (SList [SAtom "if", condSexp, trueSexp, falseSexp]) = do
   cond <- sexpToExp condSexp

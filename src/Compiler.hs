@@ -2,20 +2,27 @@
 
 module Compiler (compile, printLLVM, writeLLVM) where
 
+import Data.ByteString (ByteString)
+import qualified Data.ByteString as BS
 import Data.String.Interpolate (i)
-import qualified Data.Text.Lazy.IO as T
-import qualified LLVM.AST
-import LLVM.Pretty (ppllvm)
+import LLVM (withModuleFromAST)
+import LLVM.AST (Module)
+import LLVM.Context (withContext)
+import LLVM.Internal.Module (moduleLLVMAssembly)
 import Paths_mail (getDataFileName)
 import System.Process (callProcess)
 
-printLLVM :: LLVM.AST.Module -> IO ()
-printLLVM modl = T.putStr $ ppllvm modl
+llvmToBS :: Module -> IO ByteString
+llvmToBS modl = withContext $ \ctx ->
+  withModuleFromAST ctx modl moduleLLVMAssembly
+
+printLLVM :: Module -> IO ()
+printLLVM modl = llvmToBS modl >>= BS.putStr
 
 writeLLVM :: FilePath -> LLVM.AST.Module -> IO ()
-writeLLVM path modl = T.writeFile path $ ppllvm modl
+writeLLVM path modl = llvmToBS modl >>= BS.writeFile path
 
-compile :: String -> LLVM.AST.Module -> IO FilePath
+compile :: String -> Module -> IO FilePath
 compile name modl = do
   let llvmPath = [i|#{name}.ll|]
   writeLLVM llvmPath modl

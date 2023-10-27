@@ -11,9 +11,10 @@ data Exp
   | While Exp Exp
   | Call String [Exp]
   | Match Exp [MatchCase]
-  | Alloc TypeRef Exp
+  | Alloc Exp
   | Dealloc Exp
   | SetPointer Exp Exp
+  | GetPointer Exp
   | IntLiteral Integer
   | FloatLiteral Double
   | BoolLiteral Bool

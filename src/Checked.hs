@@ -5,8 +5,9 @@ module Checked where
 
 import Data.Map (Map)
 import Data.String.Interpolate (i)
+import Data.Word (Word32)
 
-data Identifier = Identifier !String !Integer deriving (Eq, Ord)
+data Identifier = Identifier {idName :: String, idCount :: Integer} deriving (Eq, Ord)
 
 instance Show Identifier where
   show (Identifier name 0) = name
@@ -21,12 +22,13 @@ data UntypedExp
   | While Exp Exp
   | FunCall Identifier [Exp]
   | StructMake Identifier [Exp]
-  | StructDeref Exp Integer
-  | UnionMake Identifier Integer Exp
+  | StructDeref Exp Word32
+  | UnionMake Identifier Word32 Exp
   | Match Exp [MatchCase]
-  | Alloc TypeRef Exp
+  | Alloc Exp
   | Dealloc Exp
   | SetPointer Exp Exp
+  | GetPointer Exp
   | IntLiteral Integer
   | FloatLiteral Double
   | BoolLiteral Bool
@@ -37,7 +39,7 @@ data UntypedExp
 
 data Exp = WithType {exp :: UntypedExp, type' :: TypeRef} deriving (Show)
 
-data MatchCase = MatchCase {matchedConstructor :: Integer, caseBody :: Exp} deriving (Show)
+data MatchCase = MatchCase {matchedConstructor :: Word32, caseBody :: Exp} deriving (Show)
 
 data TypeRef
   = Int
