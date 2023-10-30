@@ -1,4 +1,5 @@
 {-# LANGUAGE OverloadedStrings #-}
+{-# LANGUAGE QuasiQuotes #-}
 {-# LANGUAGE RecursiveDo #-}
 
 module Generator (gen) where
@@ -11,7 +12,8 @@ import Data.Map (Map, mapMaybe)
 import qualified Data.Map as Map
 import Data.Maybe (fromJust)
 import Data.String (fromString)
-import Debug.Trace (trace, traceShowId)
+import Data.String.Interpolate (i)
+import Debug.Trace (trace, traceShowId, traceShowM)
 import LLVM.AST (Module, Operand (ConstantOperand), mkName)
 import qualified LLVM.AST.Constant as Constant
 import qualified LLVM.AST.FloatingPointPredicate as FloatingPointPredicate
@@ -23,7 +25,7 @@ import qualified LLVM.IRBuilder.Instruction as I
 import LLVM.IRBuilder.Module
 import LLVM.IRBuilder.Monad
 
-data TypeEnvEntry = TypeEnvEntry {firstClassType :: Type, anyType :: Type}
+data TypeEnvEntry = TypeEnvEntry {boxedType :: Type, rawType :: Type} deriving (Show)
 
 type TypeEnv = Map M.Identifier TypeEnvEntry
 
@@ -37,26 +39,31 @@ data Env = Env
     typeDefs :: Map M.Identifier M.Type,
     unionValueTypes :: Map M.Identifier Type
   }
+  deriving (Show)
 
-genTypeFirstClass :: Env -> M.TypeRef -> Type
-genTypeFirstClass _ M.Int = T.i64
-genTypeFirstClass _ M.Float = T.double
-genTypeFirstClass _ M.Bool = T.i1
-genTypeFirstClass _ M.Unit = T.i1
-genTypeFirstClass env (M.TypePtr t) = T.ptr (genTypeFirstClass env t)
-genTypeFirstClass env (M.TypeRef ref) = firstClassType $ fromJust $ Map.lookup ref (tenv env)
+genTypeBoxed :: Env -> M.TypeRef -> Type
+genTypeBoxed _ M.Int = T.i64
+genTypeBoxed _ M.Float = T.double
+genTypeBoxed _ M.Bool = T.i1
+genTypeBoxed _ M.Unit = T.i1
+genTypeBoxed env (M.TypePtr t) = T.ptr (genTypeBoxed env t)
+genTypeBoxed env (M.TypeRef ref) = boxedType $ fromJust $ Map.lookup ref (tenv env)
 
-genTypeAny :: Env -> M.TypeRef -> Type
-genTypeAny _ M.Int = T.i64
-genTypeAny _ M.Float = T.double
-genTypeAny _ M.Bool = T.i1
-genTypeAny _ M.Unit = T.i1
-genTypeAny env (M.TypePtr t) = T.ptr (genTypeFirstClass env t)
-genTypeAny env (M.TypeRef ref) = anyType $ fromJust $ Map.lookup ref (tenv env)
+genTypeRaw :: Env -> M.TypeRef -> Type
+genTypeRaw _ M.Int = T.i64
+genTypeRaw _ M.Float = T.double
+genTypeRaw _ M.Bool = T.i1
+genTypeRaw _ M.Unit = T.i1
+genTypeRaw env (M.TypePtr t) = T.ptr (genTypeBoxed env t)
+genTypeRaw env (M.TypeRef ref) = rawType $ fromJust $ Map.lookup ref (tenv env)
+
+boxedTypeFromRaw :: M.Type -> Type -> Type
+boxedTypeFromRaw (M.Struct _) raw = T.ptr raw
+boxedTypeFromRaw (M.Union _) raw = T.ptr raw
 
 genTypeDef :: (MonadModuleBuilder m) => Env -> M.Identifier -> M.Type -> m Type
 genTypeDef env (M.Identifier name _) (M.Struct fields) =
-  let fieldTypes = map (genTypeAny env . M.fieldType) fields
+  let fieldTypes = map (genTypeRaw env . M.fieldType) fields
    in typedef (mkName name) (Just $ T.StructureType {T.isPacked = False, T.elementTypes = fieldTypes})
 genTypeDef env (M.Identifier name _) (M.Union constructors) =
   let valueType = unionToUnionValueType env constructors
@@ -69,82 +76,141 @@ typeToUnionValueType env (M.Union constructors) = Just $ unionToUnionValueType e
 
 unionToUnionValueType :: Env -> [M.UnionConstructor] -> Type
 unionToUnionValueType env constructors =
-  let size = maximum $ map (sizeofAny env . M.constructorType) constructors
+  let size = maximum $ map (sizeofRaw env . M.constructorType) constructors
    in T.ArrayType size T.i8
 
-isFirstClass :: Env -> M.TypeRef -> Bool
-isFirstClass _ M.Int = True
-isFirstClass _ M.Float = True
-isFirstClass _ M.Bool = True
-isFirstClass _ M.Unit = True
-isFirstClass _ (M.TypePtr _) = True
-isFirstClass env (M.TypeRef ref) = case fromJust $ Map.lookup ref (typeDefs env) of
-  M.Struct _ -> False
-  M.Union _ -> False
+sizeofRaw :: (Num a, Ord a) => Env -> M.TypeRef -> a
+sizeofRaw _ M.Int = 8
+sizeofRaw _ M.Float = 8
+sizeofRaw _ M.Bool = 1
+sizeofRaw _ M.Unit = 1
+sizeofRaw _ (M.TypePtr _) = 8
+sizeofRaw env (M.TypeRef ref) =
+  let refType = fromJust $ Map.lookup ref $ typeDefs env
+   in case refType of
+        M.Struct fields -> sum $ map (sizeofRaw env . M.fieldType) fields
+        M.Union constructors ->
+          let valueSize = maximum $ map (sizeofRaw env . M.constructorType) constructors
+           in valueSize + 1
 
--- This function should be based on a DataLayout to account for machine specifics
-sizeofFirstClass :: (Num p, Ord p) => Env -> M.TypeRef -> p
-sizeofFirstClass _ M.Int = 8
-sizeofFirstClass _ M.Float = 8
-sizeofFirstClass _ M.Bool = 1
-sizeofFirstClass _ M.Unit = 1
-sizeofFirstClass _ (M.TypePtr _) = 8
-sizeofFirstClass env (M.TypeRef ref) =
-  let sizeofType (M.Struct fields) = sum $ map (sizeofAny env . M.fieldType) fields
-      sizeofType (M.Union constructors) = let valueSize = maximum $ map (sizeofAny env . M.constructorType) constructors in valueSize + 1
-   in let refType = fromJust $ Map.lookup ref $ typeDefs env in sizeofType refType
+isBoxed :: Env -> M.TypeRef -> Bool
+isBoxed _ M.Int = False
+isBoxed _ M.Float = False
+isBoxed _ M.Bool = False
+isBoxed _ M.Unit = False
+isBoxed _ (M.TypePtr _) = False
+isBoxed env (M.TypeRef ref) = case fromJust $ Map.lookup ref (typeDefs env) of
+  M.Struct _ -> True
+  M.Union _ -> True
 
-sizeofAny :: (Num p, Ord p) => Env -> M.TypeRef -> p
-sizeofAny _ M.Int = 8
-sizeofAny _ M.Float = 8
-sizeofAny _ M.Bool = 1
-sizeofAny _ M.Unit = 1
-sizeofAny _ (M.TypePtr _) = 8
-sizeofAny env (M.TypeRef ref) =
-  let sizeofType (M.Struct fields) = sum $ map (sizeofAny env . M.fieldType) fields
-      sizeofType (M.Union constructors) = let valueSize = maximum $ map (sizeofAny env . M.constructorType) constructors in valueSize + 1
-   in let refType = fromJust $ Map.lookup ref $ typeDefs env in sizeofType refType
+copyValue :: (MonadModuleBuilder m, MonadIRBuilder m) => Env -> M.TypeRef -> Operand -> m Operand
+copyValue _ M.Int value = pure value
+copyValue _ M.Float value = pure value
+copyValue _ M.Bool value = pure value
+copyValue _ M.Unit value = pure value
+copyValue _ (M.TypePtr _) value = pure value
+copyValue env type'@(M.TypeRef _) value = do
+  addr <- alloca (genTypeRaw env type') Nothing 0
+  copyValueToRawAddr env type' value addr
+  pure addr
+
+copyValueToRawAddr :: (MonadModuleBuilder m, MonadIRBuilder m) => Env -> M.TypeRef -> Operand -> Operand -> m ()
+copyValueToRawAddr _ M.Int value addr = store addr 0 value
+copyValueToRawAddr _ M.Float value addr = store addr 0 value
+copyValueToRawAddr _ M.Bool value addr = store addr 0 value
+copyValueToRawAddr _ M.Unit value addr = store addr 0 value
+copyValueToRawAddr _ (M.TypePtr _) value addr = store addr 0 value
+copyValueToRawAddr env (M.TypeRef ref) value addr = case fromJust $ Map.lookup ref (typeDefs env) of
+  M.Struct fields ->
+    fields
+      & zip [0 ..]
+      & mapM_
+        ( \(ix, field) -> do
+            let fieldType = M.fieldType field
+            source <- gep value [C.int32 0, C.int32 ix]
+            fieldValue <- (if isBoxed env fieldType then pure source else load source 0)
+            dest <- gep addr [C.int32 0, C.int32 ix]
+            copyValueToRawAddr env fieldType fieldValue dest
+        )
+  M.Union constructors -> error "poop"
+
+
+copyValueToBoxedAddr :: (MonadModuleBuilder m, MonadIRBuilder m) => Env -> M.TypeRef -> Operand -> Operand -> m ()
+copyValueToBoxedAddr _ M.Int value addr = store addr 0 value
+copyValueToBoxedAddr _ M.Float value addr = store addr 0 value
+copyValueToBoxedAddr _ M.Bool value addr = store addr 0 value
+copyValueToBoxedAddr _ M.Unit value addr = store addr 0 value
+copyValueToBoxedAddr _ (M.TypePtr _) value addr = store addr 0 value
+copyValueToBoxedAddr env type'@(M.TypeRef ref) value addr = case fromJust $ Map.lookup ref (typeDefs env) of
+  M.Struct _ -> do
+    dest <- load addr 0
+    copyValueToRawAddr env type' value dest
+  M.Union _ -> do
+    dest <- load addr 0
+    copyValueToRawAddr env type' value dest
 
 genFunDef :: (MonadModuleBuilder m, MonadFix m) => Env -> M.Identifier -> M.Fun -> m Operand
 genFunDef env funId (M.Fun params retType body) = do
-  let paramsL =
+  let returnThroughPointerArg = isBoxed env retType
+  let paramsLRaw =
         map
           ( \(M.FunParam name type') ->
-              (genTypeAny env type', fromString $ M.idName name)
+              (genTypeBoxed env type', fromString $ M.idName name)
           )
           params
-  let retTypeL = genTypeAny env retType
-  function (mkName (M.idName funId)) paramsL retTypeL $ \argsL -> do
+  let retTypeLRaw = genTypeBoxed env retType
+  let (paramsL, retTypeL) =
+        if returnThroughPointerArg
+          then ((retTypeLRaw, "return") : paramsLRaw, T.VoidType)
+          else (paramsLRaw, retTypeLRaw)
+  function (mkName (M.idName funId)) paramsL retTypeL $ \argsLRaw -> do
     _ <- block `named` "entry"
+    let (returnResult, argsL) =
+          ( if returnThroughPointerArg
+              then (\result -> copyValueToRawAddr env retType result (head argsLRaw), tail argsLRaw)
+              else (ret, argsLRaw)
+          )
     argEnvEntries <-
       zip params argsL
         & mapM
-          ( \(param, argL) -> do
-              addr <- alloca (genTypeAny env $ M.paramType param) Nothing 0
-              store addr 0 argL
-              pure (M.paramName param, addr)
+          ( \(M.FunParam paramName paramType, argL) ->
+              if isBoxed env paramType
+                then do
+                  addr <- alloca (genTypeRaw env paramType) Nothing 0
+                  copyValueToRawAddr env paramType argL addr
+                  pure (paramName, addr)
+                else do
+                  addr <- alloca (genTypeBoxed env paramType) Nothing 0
+                  copyValueToBoxedAddr env paramType argL addr
+                  pure (paramName, addr)
           )
     let extendedEnv = env {oenv = oenv env <> Map.fromList argEnvEntries}
     bodyL <- genExp extendedEnv body
-    ret bodyL
+    returnResult bodyL
 
 genExp :: (MonadModuleBuilder m, MonadIRBuilder m, MonadFix m) => Env -> M.Exp -> m Operand
 genExp env (M.WithType expr type') = case expr of
   M.Let binding value body -> do
     valueL <- genExp env value
-    addr <- alloca (genTypeFirstClass env (M.type' value)) Nothing 0
-    store (trace "addr" (traceShowId addr)) 0 (trace "value" (traceShowId valueL))
+    addr <-
+      ( if isBoxed env $ M.type' value
+          then pure valueL
+          else do
+            addr <- alloca (genTypeRaw env (M.type' value)) Nothing 0
+            store addr 0 valueL
+            pure addr
+        )
     let extendedEnv = env {oenv = Map.insert binding addr $ oenv env}
     genExp extendedEnv body
   M.VarRef ref -> do
     let addr = fromJust (Map.lookup ref $ oenv env)
-    load addr 0
+    (if isBoxed env type' then pure addr else load addr 0)
   M.Eseq first rest -> genExp env first *> genExp env rest
   M.Assign binding value -> do
     let addr = fromJust (Map.lookup binding $ oenv env)
     valueL <- genExp env value
     store addr 0 valueL
-    pure $ C.bit 0
+    pure $ C.int8 0
   M.Ite cond tbody fbody -> mdo
     condL <- genExp env cond
     condBr condL thenBlock elseBlock
@@ -170,45 +236,47 @@ genExp env (M.WithType expr type') = case expr of
     br condBlock
     exitBlock <- block `named` "while.exit"
     genExp env (M.WithType M.UnitLiteral M.Unit)
-  M.FunCall funId args -> do
-    argsL <- mapM (genExp env) args
-    let attributedArgs = map (\arg -> (arg, [])) argsL
+  M.FunCall funId args ->
     let funAddr = fromJust $ Map.lookup funId $ oenv env
-    call funAddr attributedArgs
-  M.StructMake structId args ->
-    do
-      let structType = firstClassType $ fromJust $ Map.lookup structId $ tenv env
-      structPointer <- alloca (traceShowId structType) Nothing 0
-      -- zip [0 ..] args
-      --   & mapM_
-      --     ( \(ix, arg) -> do
-      --         addr <- gep structPointer [C.int32 0, C.int32 ix]
-      --         argL <- genExp env arg
-      --         store addr 0 argL
-      --     )
-      pure structPointer
+        returnThroughPointerArg = isBoxed env type'
+     in ( if returnThroughPointerArg
+            then do
+              argsLRaw <- mapM (genExp env) args
+              resultAddr <- alloca (genTypeRaw env type') Nothing 0
+              let argsL = resultAddr : argsLRaw
+              let attributedArgs = map (\arg -> (arg, [])) argsL
+              _ <- call funAddr attributedArgs
+              pure resultAddr
+            else do
+              argsL <- mapM (genExp env) args
+              let attributedArgs = map (\arg -> (arg, [])) argsL
+              res <- call funAddr attributedArgs
+              copyValue env type' res
+        )
+  M.StructMake structId args -> do
+    addr <- alloca (rawType $ fromJust $ Map.lookup structId (tenv env)) Nothing 0
+    args
+      & zip [0 ..]
+      & mapM_
+        ( \(ix, arg) -> do
+            argL <- genExp env arg
+            fieldAddr <- gep addr [C.int32 0, C.int32 ix]
+            copyValueToRawAddr env (M.type' arg) argL fieldAddr
+        )
+    pure addr
   M.StructDeref obj ix -> do
     objL <- genExp env obj
-    fieldPointer <- gep objL [C.int32 $ fromIntegral ix]
-    (if isFirstClass env type' then load fieldPointer 0 else pure fieldPointer)
+    addr <- gep objL [C.int32 0, C.int32 $ fromIntegral ix]
+    (if isBoxed env type' then pure addr else load addr 0)
   M.UnionMake unionId tag value -> error "poop"
-  -- do
-  -- let unionType = fromJust $ Map.lookup unionId $ tenv env
-  -- let unionValueType = fromJust $ Map.lookup unionId $ unionValueTypes env
-  -- let tagL = C.int8 $ fromIntegral tag
-  -- valueL <- genExp env value
-  -- -- castedValue <- bitcast valueL unionValueType
-  -- structWithTag <- insertValue (ConstantOperand $ Constant.Undef unionType) tagL [0]
-  -- -- insertValue structWithTag castedValue [1]
-  -- pure structWithTag
   M.Match _ _ -> error "poop"
   M.Alloc value -> do
-    let boxedType = M.type' value
-    let boxedTypeL = genTypeAny env boxedType
-    rawAddr <- call (mallocRef env) [(C.int64 $ sizeofAny env boxedType, [])]
-    addr <- bitcast rawAddr $ ptr boxedTypeL
+    let valueType = M.type' value
+    let boxedTypeL = genTypeRaw env valueType
     valueL <- genExp env value
-    store addr 0 valueL
+    rawAddr <- call (mallocRef env) [(C.int64 $ sizeofRaw env valueType, [])]
+    addr <- bitcast rawAddr $ ptr boxedTypeL
+    copyValueToRawAddr env valueType valueL addr
     pure addr
   M.Dealloc pointer -> do
     pointerL <- genExp env pointer
@@ -218,21 +286,21 @@ genExp env (M.WithType expr type') = case expr of
     pointerL <- genExp env pointer
     valueL <- genExp env value
     store pointerL 0 valueL
-    pure $ C.bit 0
+    pure $ C.int8 0
   M.GetPointer pointer -> do
     pointerL <- genExp env pointer
     load pointerL 0
   M.IntLiteral v -> pure $ C.int64 v
   M.FloatLiteral f -> pure $ C.double f
-  M.BoolLiteral b -> pure $ C.bit (if b then 1 else 0)
-  M.UnitLiteral -> pure $ C.bit 0
+  M.BoolLiteral b -> pure $ C.int8 (if b then 1 else 0)
+  M.UnitLiteral -> pure $ C.int8 0
   M.UniOp op arg -> do
     argL <- genExp env arg
     let f =
           ( case op of
               M.NegateInt -> sub (C.int64 0)
               M.NegateFloat -> fsub (C.double 0)
-              M.NegateBool -> icmp IntegerPredicate.EQ (C.bit 0)
+              M.NegateBool -> icmp IntegerPredicate.EQ (C.int8 0)
           )
     f argL
   M.BinOp op arg1 arg2 -> do
@@ -272,8 +340,15 @@ gen progName (M.Program types funs body) =
         malloc <- extern "malloc" [T.i64] (T.ptr T.i8)
         free <- externVarArgs "free" [] T.i32
 
-        typeEnvAny <- sequence $ Map.mapWithKey (genTypeDef env) types
-        let typeEnv = Map.map (\t -> TypeEnvEntry {firstClassType = T.ptr t, anyType = t}) typeEnvAny
+        typeEnv <-
+          sequence $
+            Map.mapWithKey
+              ( \typeId type' -> do
+                  rawTypeRef <- genTypeDef env typeId type'
+                  let boxedTypeRef = boxedTypeFromRaw type' rawTypeRef
+                  pure $ TypeEnvEntry {boxedType = boxedTypeRef, rawType = rawTypeRef}
+              )
+              types
         functionEnv <- sequence $ Map.mapWithKey (genFunDef env) funs
         let unionValues = mapMaybe (typeToUnionValueType env) types
         let env = Env typeEnv functionEnv malloc free types unionValues

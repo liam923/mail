@@ -22,6 +22,8 @@ main = do
     Right program -> pure program
     Left errorMessage -> ioError $ userError errorMessage
 
+  print program
+
   binPath <- compile programName $ gen programName program
   absBinPath <- makeAbsolute binPath
 

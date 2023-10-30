@@ -153,7 +153,7 @@ sexpToExp (SList [SAtom "set-ptr!", ptrSexp, valueSexp]) = do
   ptr <- sexpToExp ptrSexp
   value <- sexpToExp valueSexp
   pure $ SetPointer ptr value
-sexpToExp (SList [SAtom "get-ptr!", ptrSexp]) = GetPointer <$> sexpToExp ptrSexp
+sexpToExp (SList [SAtom "get-ptr", ptrSexp]) = GetPointer <$> sexpToExp ptrSexp
 sexpToExp (SList [SAtom "alloc", valueSexp]) = Alloc <$> sexpToExp valueSexp
 sexpToExp (SList [SAtom "dealloc", valueSexp]) = Dealloc <$> sexpToExp valueSexp
 sexpToExp (SList [SAtom "if", condSexp, trueSexp, falseSexp]) = do
