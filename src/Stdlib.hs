@@ -18,6 +18,7 @@ stdlib =
         ("-", IntMinus, Int, Int, Int),
         ("*", IntMul, Int, Int, Int),
         ("/", IntDiv, Int, Int, Int),
+        ("%", IntMod, Int, Int, Int),
         ("=", IntEQ, Int, Int, Bool),
         ("!=", IntNE, Int, Int, Bool),
         ("<", IntLT, Int, Int, Bool),
@@ -38,7 +39,5 @@ stdlib =
         ("or", Or, Bool, Bool, Bool)
       ]
     uniOps =
-      [ ("-", NegateInt, Int, Int),
-        ("-.", NegateFloat, Float, Float),
-        ("not", NegateBool, Bool, Bool)
+      [ ("not", NegateBool, Bool, Bool)
       ]

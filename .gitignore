@@ -26,3 +26,4 @@ cabal.project.local~
 test.mail
 test
 test.ll
+.DS_Store

@@ -5,25 +5,43 @@ import Compiler
 import Generator
 import Options.Applicative
 import Parser
-import System.Directory (makeAbsolute)
+import System.Directory (getCurrentDirectory, makeAbsolute)
 import System.FilePath (dropExtension, takeFileName)
 import System.Process (callProcess)
 
-data CommandArgs = CommandArgs (Maybe String) Bool
+data CommandArgs = CommandArgs {inputFile :: (Maybe String), outputDir :: (Maybe String), llvmOnly :: Bool, shouldRun :: Bool}
 
 argParser :: Parser CommandArgs
 argParser =
   CommandArgs
-    <$> optional (argument str (metavar "input-file" <> help "The Mail program to compile"))
+    <$> optional
+      ( argument
+          str
+          ( metavar "input-file"
+              <> help "The Mail program to compile"
+          )
+      )
+    <*> optional
+      ( strOption
+          ( long "outdir"
+              <> short 'o'
+              <> help "The directory to write output files to"
+          )
+      )
+    <*> switch
+      ( long "llvm-only"
+          <> short 'l'
+          <> help "Include this flag to only produce llvm and not compile a binary"
+      )
     <*> switch
       ( long "run"
           <> short 'r'
-          <> help "Whether to run the program after compiling"
+          <> help "Include this flag to run the program after compiling"
       )
 
 run :: CommandArgs -> IO ()
-run (CommandArgs filenameMaybe shouldRun) = do
-  (programName, programString) <- case filenameMaybe of
+run args = do
+  (programName, programString) <- case inputFile args of
     Just filename -> readFile filename >>= \c -> pure (dropExtension . takeFileName $ filename, c)
     Nothing -> getContents >>= \c -> pure ("stdin", c)
 
@@ -31,10 +49,12 @@ run (CommandArgs filenameMaybe shouldRun) = do
     Right program -> pure program
     Left errorMessage -> ioError $ userError errorMessage
 
-  binPath <- compile programName $ gen programName program
+  outDir <- maybe getCurrentDirectory pure (outputDir args)
+
+  (_, binPath) <- compile programName outDir (llvmOnly args) $ gen programName program
   absBinPath <- makeAbsolute binPath
 
-  (if shouldRun then callProcess absBinPath [] else pure ())
+  (if shouldRun args then callProcess absBinPath [] else pure ())
 
 main :: IO ()
 main = do

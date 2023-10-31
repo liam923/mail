@@ -13,6 +13,7 @@ import Data.Map (Map, mapMaybe)
 import qualified Data.Map as Map
 import Data.Maybe (fromJust)
 import Data.String (fromString)
+import Debug.Trace
 import LLVM.AST (Module, Operand (ConstantOperand), mkName)
 import qualified LLVM.AST.Constant as Constant
 import qualified LLVM.AST.FloatingPointPredicate as FloatingPointPredicate
@@ -102,7 +103,7 @@ genFunDef env funId (M.Fun params retType body) = do
     ret bodyL
 
 genExp :: (MonadModuleBuilder m, MonadIRBuilder m, MonadFix m) => Env -> M.Exp -> m Operand
-genExp env (M.WithType expr _) = case expr of
+genExp env (M.WithType expr type') = case expr of
   M.Let binding value body -> do
     valueL <- genExp env value
     addr <- alloca (genType env (M.type' value)) Nothing alignment
@@ -160,7 +161,12 @@ genExp env (M.WithType expr _) = case expr of
           (zip [0 ..] args)
   M.StructDeref obj ix -> do
     objL <- genExp env obj
-    extractValue objL [ix]
+    -- llvm-hs-pure has a bug that causes it to incorrectly disallow
+    -- using extractvalue to get the field
+    objAddr <- alloca (genType env $ M.type' obj) Nothing alignment
+    store objAddr alignment objL
+    fieldAddr <- gep objAddr [C.int32 0, C.int32 $ fromIntegral ix]
+    load fieldAddr alignment
   M.UnionMake unionId tag value -> do
     let unionType = fromJust $ Map.lookup unionId $ tenv env
     let valueType = genType env $ M.type' value
@@ -254,6 +260,7 @@ genExp env (M.WithType expr _) = case expr of
               M.IntMinus -> sub
               M.IntMul -> mul
               M.IntDiv -> sdiv
+              M.IntMod -> srem
               M.IntLT -> icmp IntegerPredicate.SLT
               M.IntLE -> icmp IntegerPredicate.SLE
               M.IntGT -> icmp IntegerPredicate.SGT

@@ -93,7 +93,7 @@ sexpToTypeRef :: SExp -> ParseResult TypeRef
 sexpToTypeRef (SAtom "Int") = pure Int
 sexpToTypeRef (SAtom "Float") = pure Float
 sexpToTypeRef (SAtom "Bool") = pure Bool
-sexpToTypeRef (SList []) = pure Unit
+sexpToTypeRef (SAtom "Unit") = pure Unit
 sexpToTypeRef (SList [SAtom "Ptr", tSexp]) = TypePtr <$> sexpToTypeRef tSexp
 sexpToTypeRef (SAtom sym) = pure $ TypeRef sym
 sexpToTypeRef _ = Left "Bad type syntax"
@@ -145,6 +145,7 @@ sexpToExp (SAtom str) =
       Nothing -> case str of
         "#true" -> pure $ BoolLiteral True
         "#false" -> pure $ BoolLiteral False
+        "unit" -> pure UnitLiteral
         _ -> pure $ VarRef str
 sexpToExp (SList [SAtom "set!", SAtom binding, valueSexp]) = do
   value <- sexpToExp valueSexp
@@ -180,12 +181,11 @@ sexpToExp (SList (SAtom "match" : valueSexp : casesSexps)) = do
 sexpToExp (SList (SAtom funName : argsSexps)) = do
   args <- mapM sexpToExp argsSexps
   pure $ Call funName args
-sexpToExp (SList []) = pure UnitLiteral
 sexpToExp expr = Left [i|Bad expression syntax #{expr}|]
 
 parseSexps :: String -> String -> ParseResult [SExp]
 parseSexps filename input =
-  case parse (many sexp <* eof) filename input of
+  case parse (skipSpace *> (many sexp <* skipSpace <* eof)) filename input of
     Left err -> Left $ errorBundlePretty err
     Right output -> Right output
 

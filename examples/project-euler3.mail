@@ -1,0 +1,25 @@
+; https://projecteuler.net/problem=3
+
+(union OptInt
+  (Some Int)
+  (None Unit))
+
+(define max ([a Int] [b Int]) -> Int
+  (if (> a b) a b))
+
+(define largest-prime-factor ([n Int]) -> Int
+  (define factor (None unit))
+  (define i 2)
+  ; It would be more efficient to use sqrt than / 2, but there's no sqrt in Mail
+  (while (<= i (/ n 2))
+    (if (= (% n i) 0)
+        (begin
+          (set! factor (Some i))
+          (set! i n))
+        (set! i (+ i 1))))
+  (match factor
+    [(Some factor) (max (largest-prime-factor factor) (largest-prime-factor (/ n factor)))]
+    ; If no factor was found, then n is prime
+    [(None unit) n]))
+
+(largest-prime-factor 600851475143)

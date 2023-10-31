@@ -1,0 +1,19 @@
+; https://projecteuler.net/problem=6
+
+(define sum-of-squares ([n Int]) -> Int
+  (if (<= n 0)
+      0
+      (+ (* n n) (sum-of-squares (- n 1)))))
+
+(define sum ([n Int]) -> Int
+  (if (<= n 0)
+      0
+      (+ n (sum (- n 1)))))
+
+(define square-of-sum ([n Int]) -> Int
+  (define s (sum n))
+  (* s s))
+
+(begin
+  (define n 100)
+  (- (square-of-sum n) (sum-of-squares n)))

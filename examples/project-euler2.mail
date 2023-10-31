@@ -1,0 +1,14 @@
+; https://projecteuler.net/problem=2
+
+(begin
+  (define sum 0)
+  (define curr 1)
+  (define prev 1)
+  (while (<= curr 4000000)
+    (if (= (% curr 2) 0)
+        (set! sum (+ sum curr))
+        unit)
+    (define next (+ curr prev))
+    (set! prev curr)
+    (set! curr next))
+  sum)

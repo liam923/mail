@@ -1,0 +1,25 @@
+; https://projecteuler.net/problem=5
+
+(define max ([a Int] [b Int]) -> Int
+  (if (> a b) a b))
+
+(define min ([a Int] [b Int]) -> Int
+  (if (> a b) b a))
+
+(define gcd ([a Int] [b Int]) -> Int
+  (if (> b a)
+      (gcd b a)
+      (if (= b 0)
+          a
+          (gcd b (% a b)))))
+
+(define lcm ([a Int] [b Int]) -> Int
+  (/ (* a b) (gcd a b)))
+
+(begin
+  (define lcm-so-far 1)
+  (define i 1)
+  (while (<= i 20)
+    (set! lcm-so-far (lcm lcm-so-far i))
+    (set! i (+ i 1)))
+  lcm-so-far)

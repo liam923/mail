@@ -1,0 +1,32 @@
+(struct ConsPair
+  (head Int)
+  (rest (Ptr List)))
+
+(union List
+  (Cons ConsPair)
+  (Empty Unit))
+
+(define cons ([h Int] [r List]) -> List
+  (Cons (ConsPair h (alloc r))))
+
+(define empty () -> List
+  (Empty unit))
+
+(define nth ([l List] [n Int]) -> Int
+  (match l
+    [(Cons pair) (if (= n 0) (head pair) (nth (get-ptr (rest pair)) (- n 1)))]
+    [(Empty _) -1]))
+
+(define make-fibs ([n Int]) -> List
+  (if (> n 2)
+      (begin
+        (define rest-fibs (make-fibs (- n 1)))
+        (define next (+ (nth rest-fibs 0) (nth rest-fibs 1)))
+        (cons next rest-fibs))
+      (if (= n 0)
+          (Empty unit)
+          (if (= n 1)
+              (cons 1 (empty))
+              (cons 1 (cons 1 (empty)))))))
+
+(nth (make-fibs 7) 0)

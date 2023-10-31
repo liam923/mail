@@ -78,6 +78,7 @@ data BinOp
   | IntMinus
   | IntMul
   | IntDiv
+  | IntMod
   | IntEQ
   | IntNE
   | IntLT

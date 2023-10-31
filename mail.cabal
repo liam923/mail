@@ -6,9 +6,10 @@ author:             Liam Stevenson
 
 extra-source-files:
     README.md
+    examples/*.mail
+    examples/*.ll
 data-files:
     runtime.c
-
 
 library
     exposed-modules:  Ast, Compiler, Checker, Checked, Stdlib, Parser, Generator
@@ -29,6 +30,7 @@ library
         containers,
         transformers       >=0.5   && <0.6,
         safe,
+        filepath,
         process
 
     ghc-options: -Wall
@@ -36,7 +38,7 @@ library
     hs-source-dirs:   src
     default-language: Haskell2010
 
-executable mail
+executable mailc
     main-is:          Main.hs
 
     build-depends:
@@ -51,3 +53,26 @@ executable mail
 
     hs-source-dirs:   app
     default-language: Haskell2010
+
+test-suite examples
+    type:             exitcode-stdio-1.0
+    main-is:          TestExamples.hs
+
+    build-depends:
+        base,
+        filepath,
+        directory,
+        temporary,
+        process,
+        text,
+        string-interpolate,
+        mail
+
+    ghc-options: -Wall
+
+    hs-source-dirs:   tests
+    default-language: Haskell2010
+
+source-repository head
+  type:     git
+  location: https://github.com/liam923/mail
