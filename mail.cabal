@@ -44,6 +44,7 @@ executable mail
         filepath,
         process,
         directory,
+        optparse-applicative,
         mail
 
     ghc-options: -Wall

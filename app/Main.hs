@@ -3,20 +3,29 @@ module Main where
 import Checker
 import Compiler
 import Generator
+import Options.Applicative
 import Parser
 import System.Directory (makeAbsolute)
-import System.Environment (getArgs)
 import System.FilePath (dropExtension, takeFileName)
 import System.Process (callProcess)
 
-main :: IO ()
-main = do
-  args <- getArgs
+data CommandArgs = CommandArgs (Maybe String) Bool
 
-  (programName, programString) <- case args of
-    [filename] -> readFile filename >>= \c -> pure (dropExtension . takeFileName $ filename, c)
-    [] -> getContents >>= \c -> pure ("stdin", c)
-    _ -> ioError $ userError "Expected 0 or 1 arguments"
+argParser :: Parser CommandArgs
+argParser =
+  CommandArgs
+    <$> optional (argument str (metavar "input-file" <> help "The Mail program to compile"))
+    <*> switch
+      ( long "run"
+          <> short 'r'
+          <> help "Whether to run the program after compiling"
+      )
+
+run :: CommandArgs -> IO ()
+run (CommandArgs filenameMaybe shouldRun) = do
+  (programName, programString) <- case filenameMaybe of
+    Just filename -> readFile filename >>= \c -> pure (dropExtension . takeFileName $ filename, c)
+    Nothing -> getContents >>= \c -> pure ("stdin", c)
 
   program <- case parseProgram programName programString >>= check of
     Right program -> pure program
@@ -25,4 +34,16 @@ main = do
   binPath <- compile programName $ gen programName program
   absBinPath <- makeAbsolute binPath
 
-  callProcess absBinPath []
+  (if shouldRun then callProcess absBinPath [] else pure ())
+
+main :: IO ()
+main = do
+  run =<< execParser opts
+  where
+    opts =
+      info
+        (argParser <**> helper)
+        ( fullDesc
+            <> progDesc "Compile a Mail program"
+            <> header "mailc - a compiler for Mail"
+        )
