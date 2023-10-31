@@ -11,6 +11,7 @@ import Data.Foldable (find, foldl')
 import Data.Function ((&))
 import Data.Functor ((<&>))
 import qualified Data.List as List
+import qualified Data.List.NonEmpty as NonEmpty
 import Data.Map (Map)
 import qualified Data.Map as Map
 import Data.Maybe
@@ -203,12 +204,17 @@ checkSignatures = loop Set.empty (Map.keysSet stdlib) Set.empty Map.empty
             (pure (Set.insert unionName seen, Set.empty, ids, []))
             constructors
         let checkedConstructors = reverse checkedConstructorsRev
+        checkedConstructorsNonEmpty <-
+          ( case checkedConstructors of
+              [] -> lift $ Left [i|Empty union ${unionName}|]
+              l@(_ : _) -> pure $ NonEmpty.fromList l
+            )
         let newNeeds = Set.delete unionName $ Set.union needs constructorNeeds
         (restEnv, restTypes, restFuns) <- loop (Set.insert unionName seenTypes) seenAfterConstructors newNeeds idsAfterConstructors rest
         let constructorSignatures = mapi (\ix c -> (T.constructorName c, UnionConstructorSignature unionId c ix)) checkedConstructors
         pure
           ( foldl' (\e (n, s) -> Map.insert n s e) restEnv constructorSignatures,
-            Map.insert unionName (unionId, T.Union checkedConstructors) restTypes,
+            Map.insert unionName (unionId, T.Union checkedConstructorsNonEmpty) restTypes,
             restFuns
           )
 
@@ -309,22 +315,22 @@ checkType env (U.Call funName args) = case Map.lookup funName stdlib of
                 [arg] -> pure arg
                 _ -> lift $ Left [i|Expected 1 argument to #{funName}, got #{length args}|]
               )
-          checkedArg <- checkAndExpect env (T.TypeRef unionId) arg
-          pure $ T.WithType (T.UnionMake unionId ix checkedArg) (T.constructorType constructor)
+          checkedArg <- checkAndExpect env (T.constructorType constructor) arg
+          pure $ T.WithType (T.UnionMake unionId ix checkedArg) (T.TypeRef unionId)
         Nothing -> lift $ Left [i|Undefined function #{funName}|]
     )
 checkType env (U.Match value cases) =
   do
     checkedValue <- checkType env value
     let notUnionError = [i|Expected a union type, got #{T.type' checkedValue}|]
-    unionConstructors <- case T.type' checkedValue of
+    (unionConstructors, unionId) <- case T.type' checkedValue of
       T.Int -> lift $ Left notUnionError
       T.Bool -> lift $ Left notUnionError
       T.Float -> lift $ Left notUnionError
       T.Unit -> lift $ Left notUnionError
       T.TypePtr _ -> lift $ Left notUnionError
       T.TypeRef ref -> case Map.lookup ref $ tenv env of
-        Just (T.Union constructors) -> pure constructors
+        Just (T.Union constructors) -> pure (constructors, ref)
         Just (T.Struct _) -> lift $ Left notUnionError
         Nothing -> lift $ Left [i|Undefined type #{ref}|]
     -- check for exhaustiveness
@@ -349,16 +355,21 @@ checkType env (U.Match value cases) =
     checkedCases <-
       mapM
         ( \(U.MatchCase matchName binding body) ->
-            case unionConstructors & mapi (,) & find (\(_, c) -> T.constructorName c == matchName) of
+            case NonEmpty.toList unionConstructors & mapi (,) & find (\(_, c) -> T.constructorName c == matchName) of
               Just (ix, T.UnionConstructor _ matchedType) -> do
                 varId <- getId binding
                 let extendedEnv = env {lenv = Map.insert binding (varId, matchedType) $ lenv env}
                 checkedBody <- checkType extendedEnv body
-                pure $ T.MatchCase ix checkedBody
+                pure $ T.MatchCase ix varId matchedType checkedBody
               Nothing -> lift $ Left [i|Unexpected constructor #{matchName}|]
         )
         cases
-    T.WithType (T.Match checkedValue checkedCases)
+    checkedCasesNonEmpty <-
+      ( case checkedCases of
+          [] -> lift $ Left [i|Empty match|]
+          l@(_ : _) -> pure $ NonEmpty.fromList l
+        )
+    T.WithType (T.Match unionId checkedValue checkedCasesNonEmpty)
       <$> ( case map (T.type' . T.caseBody) checkedCases of
               [] -> lift $ Left "Empty match statement"
               (headType : restTypes) ->

@@ -3,6 +3,7 @@
 
 module Checked where
 
+import Data.List.NonEmpty (NonEmpty)
 import Data.Map (Map)
 import Data.String.Interpolate (i)
 import Data.Word (Word32)
@@ -24,7 +25,7 @@ data UntypedExp
   | StructMake Identifier [Exp]
   | StructDeref Exp Word32
   | UnionMake Identifier Word32 Exp
-  | Match Exp [MatchCase]
+  | Match Identifier Exp (NonEmpty MatchCase)
   | Alloc Exp
   | Dealloc Exp
   | SetPointer Exp Exp
@@ -39,7 +40,7 @@ data UntypedExp
 
 data Exp = WithType {exp :: UntypedExp, type' :: TypeRef} deriving (Show)
 
-data MatchCase = MatchCase {matchedConstructor :: Word32, caseBody :: Exp} deriving (Show)
+data MatchCase = MatchCase {matchedConstructor :: Word32, matchedBinding :: Identifier, matchedType :: TypeRef, caseBody :: Exp} deriving (Show)
 
 data TypeRef
   = Int
@@ -66,7 +67,7 @@ data StructField = StructField {fieldName :: String, fieldType :: TypeRef} deriv
 
 data UnionConstructor = UnionConstructor {constructorName :: String, constructorType :: TypeRef} deriving (Show)
 
-data Type = Struct [StructField] | Union [UnionConstructor] deriving (Show)
+data Type = Struct [StructField] | Union (NonEmpty UnionConstructor) deriving (Show)
 
 data Program = Program {typeDefs :: Map Identifier Type, funDefs :: Map Identifier Fun, programBody :: Exp} deriving (Show)
 
