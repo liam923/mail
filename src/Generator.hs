@@ -13,7 +13,6 @@ import Data.Map (Map, mapMaybe)
 import qualified Data.Map as Map
 import Data.Maybe (fromJust)
 import Data.String (fromString)
-import Debug.Trace
 import LLVM.AST (Module, Operand (ConstantOperand), mkName)
 import qualified LLVM.AST.Constant as Constant
 import qualified LLVM.AST.FloatingPointPredicate as FloatingPointPredicate
@@ -103,7 +102,7 @@ genFunDef env funId (M.Fun params retType body) = do
     ret bodyL
 
 genExp :: (MonadModuleBuilder m, MonadIRBuilder m, MonadFix m) => Env -> M.Exp -> m Operand
-genExp env (M.WithType expr type') = case expr of
+genExp env (M.WithType expr _) = case expr of
   M.Let binding value body -> do
     valueL <- genExp env value
     addr <- alloca (genType env (M.type' value)) Nothing alignment

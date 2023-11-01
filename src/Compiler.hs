@@ -1,10 +1,7 @@
-{-# LANGUAGE QuasiQuotes #-}
-
 module Compiler (compile, printLLVM, writeLLVM) where
 
 import Data.ByteString (ByteString)
 import qualified Data.ByteString as BS
-import Data.String.Interpolate (i)
 import LLVM (withModuleFromAST)
 import LLVM.AST (Module)
 import LLVM.Context (withContext)
